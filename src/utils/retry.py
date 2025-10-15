@@ -27,9 +27,7 @@ def async_retry(
         @wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             attempts = (
-                max_attempts
-                if max_attempts is not None
-                else config.max_retry_attempts
+                max_attempts if max_attempts is not None else config.max_retry_attempts
             )
             factor = (
                 backoff_factor
@@ -90,9 +88,7 @@ def sync_retry(
         @wraps(func)
         def wrapper(*args, **kwargs) -> Any:
             attempts = (
-                max_attempts
-                if max_attempts is not None
-                else config.max_retry_attempts
+                max_attempts if max_attempts is not None else config.max_retry_attempts
             )
             factor = (
                 backoff_factor

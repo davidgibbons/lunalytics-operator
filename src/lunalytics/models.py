@@ -1,4 +1,5 @@
 """Pydantic models for Lunalytics API requests and responses."""
+
 # pylint: disable=no-self-argument,too-few-public-methods
 
 import re

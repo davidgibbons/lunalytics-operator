@@ -121,13 +121,17 @@ async def handle_monitor_create_or_update(
     try:
         if not spec.get("name"):
             await _update_monitor_status(
-                namespace, name, {"state": "error", "message": "Missing required field: name"}
+                namespace,
+                name,
+                {"state": "error", "message": "Missing required field: name"},
             )
             return
 
         if not spec.get("url"):
             await _update_monitor_status(
-                namespace, name, {"state": "error", "message": "Missing required field: url"}
+                namespace,
+                name,
+                {"state": "error", "message": "Missing required field: url"},
             )
             return
 
@@ -190,9 +194,7 @@ async def handle_monitor_create_or_update(
 
 
 @kopf.on.delete("lunalytics.io", "v1alpha1", "monitors")
-async def handle_monitor_delete(
-    namespace: str, name: str, status: Dict[str, Any], **_
-):
+async def handle_monitor_delete(namespace: str, name: str, status: Dict[str, Any], **_):
     """Handle Monitor CRD delete events."""
     monitor_id = status.get("monitorId")
 
@@ -202,7 +204,9 @@ async def handle_monitor_delete(
         )
         return
 
-    logger.info("Deleting monitor %s for Monitor CRD %s/%s", monitor_id, namespace, name)
+    logger.info(
+        "Deleting monitor %s for Monitor CRD %s/%s", monitor_id, namespace, name
+    )
 
     try:
         async with LunalyticsClient() as lunalytics_client:
@@ -215,9 +219,7 @@ async def handle_monitor_delete(
             )
 
     except LunalyticsNotFoundError:
-        logger.info(
-            "Monitor %s not found in Lunalytics (already deleted)", monitor_id
-        )
+        logger.info("Monitor %s not found in Lunalytics (already deleted)", monitor_id)
     except LunalyticsAPIError as e:
         logger.error(
             "Error deleting monitor %s for Monitor CRD %s/%s: %s",
@@ -236,9 +238,7 @@ async def handle_monitor_delete(
 
 
 @kopf.on.resume("lunalytics.io", "v1alpha1", "monitors")
-async def handle_monitor_resume(
-    namespace: str, name: str, status: Dict[str, Any], **_
-):
+async def handle_monitor_resume(namespace: str, name: str, status: Dict[str, Any], **_):
     """Handle Monitor CRD resume events (operator startup)."""
     monitor_id = status.get("monitorId")
     if not monitor_id:
@@ -287,7 +287,9 @@ async def handle_monitor_resume(
 
     except (LunalyticsAPIError, ApiException) as e:
         await _update_monitor_status(
-            namespace, name, {"state": "error", "message": f"Error validating monitor: {e}"}
+            namespace,
+            name,
+            {"state": "error", "message": f"Error validating monitor: {e}"},
         )
         logger.error(
             "Error validating monitor %s for resumed Monitor CRD %s/%s: %s",
