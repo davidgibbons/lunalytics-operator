@@ -37,7 +37,7 @@ echo "🚢 Applying operator deployment..."
 kubectl apply -f deploy/deployment.yaml
 
 echo "⏳ Waiting for operator to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/lunalytics-operator
+kubectl wait --for=condition=available --timeout=300s deployment/lunalytics-operator -n lunalytics-system
 
 echo "✅ Lunalytics KOPF Operator deployed successfully!"
 

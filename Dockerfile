@@ -22,4 +22,4 @@ USER lunalytics-operator
 # Set Python path
 ENV PYTHONPATH=/app/src
 
-CMD ["python", "-m", "src.operator"]
+CMD ["python", "-m", "src.main"]

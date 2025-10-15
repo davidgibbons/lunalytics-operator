@@ -72,7 +72,7 @@ spec:
                     type: string
                     pattern: "^\\d{3}(-\\d{3})?$"
                   default: ["200-299"]
-              additionalProperties: false
+
             status:
               type: object
               properties:
@@ -97,7 +97,7 @@ spec:
                 averageLatency:
                   type: number
                   description: "Average response latency from Lunalytics"
-              additionalProperties: false
+
       subresources:
         status: {}
       additionalPrinterColumns:

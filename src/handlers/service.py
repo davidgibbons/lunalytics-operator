@@ -1,271 +1,277 @@
-"""
-KOPF handlers for Service resources.
-"""
+# pylint: disable=duplicate-code
+"""KOPF handlers for Service resources."""
 
 import logging
-import kopf
-import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
+import kopf
 from kubernetes import client
-from kubernetes.client.rest import ApiException
 
+from ..config import config
 from ..lunalytics.client import LunalyticsClient
-from ..lunalytics.models import MonitorCreate, MonitorUpdate
 from ..lunalytics.exceptions import LunalyticsAPIError, LunalyticsNotFoundError
+from ..lunalytics.models import MonitorCreate, MonitorUpdate
 from ..utils.annotations import (
-    is_monitoring_enabled,
-    get_monitor_name,
+    create_monitor_id_annotation,
     get_monitor_config_from_annotations,
     get_monitor_id_from_annotations,
-    create_monitor_id_annotation,
+    get_monitor_name,
+    is_monitoring_enabled,
     merge_with_defaults,
+    update_resource_annotations,
     validate_monitor_config,
-    update_resource_annotations
 )
 from ..utils.url_builder import build_monitor_url
-from ..config import config
 
 logger = logging.getLogger(__name__)
 
-# Kubernetes API clients
 v1 = client.CoreV1Api()
 
 
 async def _check_duplicate_monitor(url: str, namespace: str) -> Optional[str]:
-    """
-    Check if a Monitor CRD already exists for the same URL.
-    
-    Args:
-        url: URL to check for duplicates
-        namespace: Namespace to search in
-        
-    Returns:
-        Monitor CRD name if duplicate found, None otherwise
-    """
+    """Check if a Monitor CRD already exists for the same URL."""
     try:
-        # List Monitor CRDs in the namespace
         custom_api = client.CustomObjectsApi()
         monitors = custom_api.list_namespaced_custom_object(
             group="lunalytics.io",
             version="v1alpha1",
             namespace=namespace,
-            plural="monitors"
+            plural="monitors",
         )
-        
-        for monitor in monitors.get('items', []):
-            monitor_spec = monitor.get('spec', {})
-            if monitor_spec.get('url') == url:
-                return monitor.get('metadata', {}).get('name')
-        
+        for monitor in monitors.get("items", []):
+            monitor_spec = monitor.get("spec", {})
+            if monitor_spec.get("url") == url:
+                return monitor.get("metadata", {}).get("name")
         return None
-        
-    except Exception as e:
-        logger.warning(f"Error checking for duplicate monitors: {e}")
+    except client.ApiException as e:
+        logger.warning("Error checking for duplicate monitors: %s", e)
         return None
 
 
-async def _handle_duplicate_conflict(duplicate_name: str, namespace: str, url: str) -> None:
-    """
-    Handle duplicate conflict by updating Monitor CRD status.
-    
-    Args:
-        duplicate_name: Name of the duplicate Monitor CRD
-        namespace: Namespace of the Monitor CRD
-        url: URL that caused the conflict
-    """
+async def _handle_duplicate_conflict(
+    duplicate_name: str, namespace: str, url: str
+) -> None:
+    """Handle duplicate conflict by updating Monitor CRD status."""
     try:
         custom_api = client.CustomObjectsApi()
-        
-        # Update Monitor CRD status to conflict
         patch_body = {
             "status": {
                 "state": "conflict",
                 "message": f"Conflict: Service annotation takes precedence for URL {url}",
-                "lastSyncTime": datetime.utcnow().isoformat() + "Z"
+                "lastSyncTime": datetime.utcnow().isoformat() + "Z",
             }
         }
-        
         custom_api.patch_namespaced_custom_object_status(
             group="lunalytics.io",
             version="v1alpha1",
             namespace=namespace,
             plural="monitors",
             name=duplicate_name,
-            body=patch_body
+            body=patch_body,
         )
-        
-        logger.info(f"Updated Monitor CRD {duplicate_name} to conflict state due to annotation precedence")
-        
-    except Exception as e:
-        logger.error(f"Error updating Monitor CRD conflict status: {e}")
+        logger.info(
+            "Updated Monitor CRD %s to conflict state due to annotation precedence",
+            duplicate_name,
+        )
+    except client.ApiException as e:
+        logger.error("Error updating Monitor CRD conflict status: %s", e)
 
 
-@kopf.on.create('', 'v1', 'services')
-@kopf.on.update('', 'v1', 'services')
+async def _get_and_validate_monitor_config(
+    annotations: Dict[str, Any], spec: Dict[str, Any], namespace: str, name: str
+) -> Optional[Dict[str, Any]]:
+    """Get and validate monitor configuration from annotations."""
+    annotation_config = get_monitor_config_from_annotations(annotations)
+    url = build_monitor_url(
+        resource_spec=spec,
+        resource_type="service",
+        resource_name=name,
+        namespace=namespace,
+        explicit_url=annotation_config.get("url"),
+    )
+    if not url:
+        logger.error("Could not build URL for Service %s/%s", namespace, name)
+        return None
+
+    monitor_name = get_monitor_name(annotations, name, "Service")
+    annotation_config["name"] = monitor_name
+    annotation_config["url"] = url
+
+    monitor_config = merge_with_defaults(annotation_config)
+    validation_errors = validate_monitor_config(monitor_config)
+    if validation_errors:
+        logger.error(
+            "Invalid monitor configuration for Service %s/%s: %s",
+            namespace,
+            name,
+            validation_errors,
+        )
+        return None
+
+    return monitor_config
+
+
+@kopf.on.create("", "v1", "services")
+@kopf.on.update("", "v1", "services")
 async def handle_service_create_or_update(
-    spec: Dict[str, Any],
-    meta: Dict[str, Any],
-    namespace: str,
-    name: str,
-    status: Dict[str, Any],
-    **kwargs
+    spec: Dict[str, Any], meta: Dict[str, Any], namespace: str, name: str, **_
 ):
     """Handle Service create or update events."""
-    
-    annotations = meta.get('annotations', {})
-    
-    # Check if namespace is monitored
+    annotations = meta.get("annotations", {})
     if not config.is_namespace_monitored(namespace):
-        logger.debug(f"Namespace {namespace} not monitored for Service {name}")
+        logger.debug("Namespace %s not monitored for Service %s", namespace, name)
         return
-    
-    # Check if monitoring is enabled
+
     if not is_monitoring_enabled(annotations):
-        logger.debug(f"Monitoring not enabled for Service {namespace}/{name}")
+        logger.debug("Monitoring not enabled for Service %s/%s", namespace, name)
         return
-    
-    logger.info(f"Processing Service {namespace}/{name} for monitoring")
-    
+
+    logger.info("Processing Service %s/%s for monitoring", namespace, name)
+
     try:
-        # Get monitor configuration from annotations
-        annotation_config = get_monitor_config_from_annotations(annotations)
-        
-        # Build URL from Service spec
-        url = build_monitor_url(
-            resource_spec=spec,
-            resource_type='service',
-            resource_name=name,
-            namespace=namespace,
-            explicit_url=annotation_config.get('url')
+        monitor_config = await _get_and_validate_monitor_config(
+            annotations, spec, namespace, name
         )
-        
-        if not url:
-            logger.error(f"Could not build URL for Service {namespace}/{name}")
+        if not monitor_config:
             return
-        
-        # Add name to config
-        monitor_name = get_monitor_name(annotations, name, 'Service')
-        annotation_config['name'] = monitor_name
-        annotation_config['url'] = url
-        
-        # Merge with defaults
-        monitor_config = merge_with_defaults(annotation_config)
-        
-        # Validate configuration
-        validation_errors = validate_monitor_config(monitor_config)
-        if validation_errors:
-            logger.error(f"Invalid monitor configuration for Service {namespace}/{name}: {validation_errors}")
-            return
-        
-        # Check for duplicates if configured
-        if config.duplicate_handling == 'annotation_priority':
-            duplicate_name = await _check_duplicate_monitor(url, namespace)
+
+        if config.duplicate_handling == "annotation_priority":
+            duplicate_name = await _check_duplicate_monitor(
+                monitor_config["url"], namespace
+            )
             if duplicate_name:
-                await _handle_duplicate_conflict(duplicate_name, namespace, url)
-        
-        # Get existing monitor ID
+                await _handle_duplicate_conflict(
+                    duplicate_name, namespace, monitor_config["url"]
+                )
+
         existing_monitor_id = get_monitor_id_from_annotations(annotations)
-        
-        # Create or update monitor in Lunalytics
+
         async with LunalyticsClient() as lunalytics_client:
             if existing_monitor_id:
-                # Check if monitor still exists
                 if await lunalytics_client.validate_monitor_exists(existing_monitor_id):
-                    # Update existing monitor
                     update_payload = MonitorUpdate(
                         monitor_id=existing_monitor_id,
-                        **{k: v for k, v in monitor_config.items() if k != 'url'}
+                        **{k: v for k, v in monitor_config.items() if k != "url"},
                     )
-                    monitor_response = await lunalytics_client.edit_monitor(update_payload)
-                    logger.info(f"Updated monitor {existing_monitor_id} for Service {namespace}/{name}")
+                    await lunalytics_client.edit_monitor(update_payload)
+                    logger.info(
+                        "Updated monitor %s for Service %s/%s",
+                        existing_monitor_id,
+                        namespace,
+                        name,
+                    )
                 else:
-                    # Monitor doesn't exist, create new one
                     create_payload = MonitorCreate(**monitor_config)
-                    monitor_response = await lunalytics_client.add_monitor(create_payload)
-                    # Update annotation with new monitor ID
-                    monitor_id_annotation = create_monitor_id_annotation(monitor_response.monitor_id)
-                    update_resource_annotations(
-                        v1, namespace, 'service', name, monitor_id_annotation
+                    monitor_response = await lunalytics_client.add_monitor(
+                        create_payload
                     )
-                    logger.info(f"Created new monitor {monitor_response.monitor_id} for Service {namespace}/{name}")
+                    monitor_id_annotation = create_monitor_id_annotation(
+                        monitor_response.monitor_id
+                    )
+                    update_resource_annotations(
+                        v1, namespace, "service", name, monitor_id_annotation
+                    )
+                    logger.info(
+                        "Created new monitor %s for Service %s/%s",
+                        monitor_response.monitor_id,
+                        namespace,
+                        name,
+                    )
             else:
-                # Create new monitor
                 create_payload = MonitorCreate(**monitor_config)
                 monitor_response = await lunalytics_client.add_monitor(create_payload)
-                # Update annotation with monitor ID
-                monitor_id_annotation = create_monitor_id_annotation(monitor_response.monitor_id)
-                update_resource_annotations(
-                    v1, namespace, 'service', name, monitor_id_annotation
+                monitor_id_annotation = create_monitor_id_annotation(
+                    monitor_response.monitor_id
                 )
-                logger.info(f"Created monitor {monitor_response.monitor_id} for Service {namespace}/{name}")
-    
+                update_resource_annotations(
+                    v1, namespace, "service", name, monitor_id_annotation
+                )
+                logger.info(
+                    "Created monitor %s for Service %s/%s",
+                    monitor_response.monitor_id,
+                    namespace,
+                    name,
+                )
+
     except LunalyticsAPIError as e:
-        logger.error(f"Lunalytics API error for Service {namespace}/{name}: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error processing Service {namespace}/{name}: {e}")
+        logger.error("Lunalytics API error for Service %s/%s: %s", namespace, name, e)
+    except client.ApiException as e:
+        logger.error("Kubernetes API error for Service %s/%s: %s", namespace, name, e)
 
 
-@kopf.on.delete('', 'v1', 'services')
-async def handle_service_delete(
-    spec: Dict[str, Any],
-    meta: Dict[str, Any],
-    namespace: str,
-    name: str,
-    **kwargs
-):
+@kopf.on.delete("", "v1", "services")
+async def handle_service_delete(meta: Dict[str, Any], namespace: str, name: str, **_):
     """Handle Service delete events."""
-    
-    annotations = meta.get('annotations', {})
+    annotations = meta.get("annotations", {})
     monitor_id = get_monitor_id_from_annotations(annotations)
-    
+
     if not monitor_id:
-        logger.debug(f"No monitor ID found for deleted Service {namespace}/{name}")
+        logger.debug("No monitor ID found for deleted Service %s/%s", namespace, name)
         return
-    
-    logger.info(f"Deleting monitor {monitor_id} for Service {namespace}/{name}")
-    
+
+    logger.info("Deleting monitor %s for Service %s/%s", monitor_id, namespace, name)
+
     try:
         async with LunalyticsClient() as lunalytics_client:
             await lunalytics_client.delete_monitor(monitor_id)
-            logger.info(f"Successfully deleted monitor {monitor_id} for Service {namespace}/{name}")
-    
+            logger.info(
+                "Successfully deleted monitor %s for Service %s/%s",
+                monitor_id,
+                namespace,
+                name,
+            )
+
     except LunalyticsNotFoundError:
-        logger.info(f"Monitor {monitor_id} not found in Lunalytics (already deleted)")
+        logger.info("Monitor %s not found in Lunalytics (already deleted)", monitor_id)
     except LunalyticsAPIError as e:
-        logger.error(f"Error deleting monitor {monitor_id} for Service {namespace}/{name}: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error deleting monitor for Service {namespace}/{name}: {e}")
+        logger.error(
+            "Error deleting monitor %s for Service %s/%s: %s",
+            monitor_id,
+            namespace,
+            name,
+            e,
+        )
+    except client.ApiException as e:
+        logger.error(
+            "Kubernetes API error deleting monitor for Service %s/%s: %s",
+            namespace,
+            name,
+            e,
+        )
 
 
-@kopf.on.resume('', 'v1', 'services')
-async def handle_service_resume(
-    spec: Dict[str, Any],
-    meta: Dict[str, Any],
-    namespace: str,
-    name: str,
-    **kwargs
-):
+@kopf.on.resume("", "v1", "services")
+async def handle_service_resume(meta: Dict[str, Any], namespace: str, name: str, **_):
     """Handle Service resume events (operator startup)."""
-    
-    annotations = meta.get('annotations', {})
-    
-    # Only process if monitoring is enabled and monitor ID exists
+    annotations = meta.get("annotations", {})
+
     if not is_monitoring_enabled(annotations):
         return
-    
+
     monitor_id = get_monitor_id_from_annotations(annotations)
     if not monitor_id:
         return
-    
-    logger.info(f"Validating monitor {monitor_id} for resumed Service {namespace}/{name}")
-    
+
+    logger.info(
+        "Validating monitor %s for resumed Service %s/%s", monitor_id, namespace, name
+    )
+
     try:
         async with LunalyticsClient() as lunalytics_client:
-            # Validate monitor still exists
             if not await lunalytics_client.validate_monitor_exists(monitor_id):
-                logger.warning(f"Monitor {monitor_id} not found for resumed Service {namespace}/{name}, will recreate on next update")
-    
-    except Exception as e:
-        logger.error(f"Error validating monitor {monitor_id} for resumed Service {namespace}/{name}: {e}")
+                logger.warning(
+                    "Monitor %s not found for resumed Service %s/%s, "
+                    "will recreate on next update",
+                    monitor_id,
+                    namespace,
+                    name,
+                )
+    except (LunalyticsAPIError, client.ApiException) as e:
+        logger.error(
+            "Error validating monitor %s for resumed Service %s/%s: %s",
+            monitor_id,
+            namespace,
+            name,
+            e,
+        )
