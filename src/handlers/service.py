@@ -12,16 +12,13 @@ from ..config import config
 from ..lunalytics.client import LunalyticsClient
 from ..lunalytics.exceptions import LunalyticsAPIError, LunalyticsNotFoundError
 from ..lunalytics.models import MonitorCreate, MonitorUpdate
-from ..utils.annotations import (
-    create_monitor_id_annotation,
-    get_monitor_config_from_annotations,
-    get_monitor_id_from_annotations,
-    get_monitor_name,
-    is_monitoring_enabled,
-    merge_with_defaults,
-    update_resource_annotations,
-    validate_monitor_config,
-)
+from ..utils.annotations import (create_monitor_id_annotation,
+                                 get_monitor_config_from_annotations,
+                                 get_monitor_id_from_annotations,
+                                 get_monitor_name, is_monitoring_enabled,
+                                 merge_with_defaults,
+                                 update_resource_annotations,
+                                 validate_monitor_config)
 from ..utils.url_builder import build_monitor_url
 
 logger = logging.getLogger(__name__)
