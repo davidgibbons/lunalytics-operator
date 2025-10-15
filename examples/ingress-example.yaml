@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-app-ingress
+  namespace: lunalytics-system
+  annotations:
+    # Enable Lunalytics monitoring
+    lunalytics.io/enabled: "true"
+    
+    # Custom monitor name
+    lunalytics.io/name: "Example App Frontend"
+    
+    # Custom monitoring parameters
+    lunalytics.io/interval: "60"
+    lunalytics.io/retry-interval: "30"
+    lunalytics.io/request-timeout: "10"
+    lunalytics.io/method: "GET"
+    lunalytics.io/valid-status-codes: "200-299,301"
+spec:
+  rules:
+    - host: example-app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: example-app-service
+                port:
+                  number: 80

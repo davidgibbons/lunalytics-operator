@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lunalytics-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "lunalytics-operator.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "lunalytics-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "lunalytics-operator.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "lunalytics-operator.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            # Lunalytics API configuration
+            - name: LUNALYTICS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lunalytics-operator.fullname" . }}-secret
+                  key: api-token
+            - name: LUNALYTICS_API_URL
+              value: {{ .Values.lunalytics.apiUrl | quote }}
+            
+            # Retry configuration
+            - name: MAX_RETRY_ATTEMPTS
+              value: {{ .Values.retry.maxAttempts | quote }}
+            - name: RETRY_BACKOFF_FACTOR
+              value: {{ .Values.retry.backoffFactor | quote }}
+            - name: RETRY_MAX_DELAY
+              value: {{ .Values.retry.maxDelay | quote }}
+            
+            # Duplicate handling
+            - name: DUPLICATE_HANDLING
+              value: {{ .Values.duplicateHandling | quote }}
+            
+            # Monitor defaults
+            - name: MONITOR_DEFAULT_TYPE
+              value: {{ .Values.monitorDefaults.type | quote }}
+            - name: MONITOR_DEFAULT_METHOD
+              value: {{ .Values.monitorDefaults.method | quote }}
+            - name: MONITOR_DEFAULT_INTERVAL
+              value: {{ .Values.monitorDefaults.interval | quote }}
+            - name: MONITOR_DEFAULT_RETRY_INTERVAL
+              value: {{ .Values.monitorDefaults.retryInterval | quote }}
+            - name: MONITOR_DEFAULT_REQUEST_TIMEOUT
+              value: {{ .Values.monitorDefaults.requestTimeout | quote }}
+            - name: MONITOR_DEFAULT_VALID_STATUS_CODES
+              value: {{ .Values.monitorDefaults.validStatusCodes | join "," | quote }}
+            
+            # Namespace filtering
+            - name: NAMESPACE_FILTER_STRATEGY
+              value: {{ .Values.namespaceFilter.strategy | quote }}
+            - name: NAMESPACE_FILTER_NAMESPACES
+              value: {{ .Values.namespaceFilter.namespaces | join "," | quote }}
+            - name: NAMESPACE_FILTER_ANNOTATION_KEY
+              value: {{ .Values.namespaceFilter.annotationKey | quote }}
+            - name: NAMESPACE_FILTER_ANNOTATION_VALUE
+              value: {{ .Values.namespaceFilter.annotationValue | quote }}
+            
+            # Kubernetes API configuration
+            - name: KUBERNETES_IN_CLUSTER
+              value: {{ .Values.kubernetes.inCluster | quote }}
+            {{- if .Values.kubernetes.configFile }}
+            - name: KUBECONFIG
+              value: {{ .Values.kubernetes.configFile | quote }}
+            {{- end }}
+            {{- if .Values.kubernetes.context }}
+            - name: KUBERNETES_CONTEXT
+              value: {{ .Values.kubernetes.context | quote }}
+            {{- end }}
+          
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "lunalytics-operator.fullname" . }}-config
+      
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

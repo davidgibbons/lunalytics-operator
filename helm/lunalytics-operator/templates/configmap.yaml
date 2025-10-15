@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lunalytics-operator.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "lunalytics-operator.labels" . | nindent 4 }}
+data:
+  defaults.yaml: |
+    # Default monitor configuration
+    monitor_defaults:
+      type: "{{ .Values.monitorDefaults.type }}"
+      method: "{{ .Values.monitorDefaults.method }}"
+      interval: {{ .Values.monitorDefaults.interval }}
+      retry_interval: {{ .Values.monitorDefaults.retryInterval }}
+      request_timeout: {{ .Values.monitorDefaults.requestTimeout }}
+      valid_status_codes: {{ .Values.monitorDefaults.validStatusCodes | toJson }}
+
+    # Retry configuration
+    retry:
+      max_attempts: {{ .Values.retry.maxAttempts }}
+      backoff_factor: {{ .Values.retry.backoffFactor }}
+      max_delay: {{ .Values.retry.maxDelay }}
+
+    # Duplicate handling
+    duplicate_handling: "{{ .Values.duplicateHandling }}"
+
+    # Namespace filtering
+    namespace_filter:
+      strategy: "{{ .Values.namespaceFilter.strategy }}"
+      namespaces: {{ .Values.namespaceFilter.namespaces | toJson }}
+      annotation_key: "{{ .Values.namespaceFilter.annotationKey }}"
+      annotation_value: "{{ .Values.namespaceFilter.annotationValue }}"
+
+    # Kubernetes API configuration
+    kubernetes:
+      in_cluster: {{ .Values.kubernetes.inCluster }}
+      config_file: "{{ .Values.kubernetes.configFile }}"
+      context: "{{ .Values.kubernetes.context }}"
+
+    # Lunalytics API configuration
+    lunalytics:
+      api_url: "{{ .Values.lunalytics.apiUrl }}"
+      # api_token should be set via environment variable LUNALYTICS_API_TOKEN

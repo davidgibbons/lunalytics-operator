@@ -1,0 +1,129 @@
+# Default values for lunalytics-operator
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/dgibbons/lunalytics_operator
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Lunalytics configuration
+lunalytics:
+  # API token (required)
+  apiToken: ""
+  # API base URL
+  apiUrl: "https://lunalytics.xyz"
+  
+# Retry configuration
+retry:
+  maxAttempts: 3  # -1 for infinite retries
+  backoffFactor: 2.0
+  maxDelay: 300   # seconds
+
+# Duplicate handling strategy: annotation_priority, crd_priority, allow_both
+duplicateHandling: "annotation_priority"
+
+# Monitor defaults
+monitorDefaults:
+  type: "http"
+  method: "GET"
+  interval: 30
+  retryInterval: 30
+  requestTimeout: 30
+  validStatusCodes: ["200-299"]
+
+# Namespace filtering
+namespaceFilter:
+  # Strategy: all, list, annotation
+  strategy: "all"
+  # List of namespaces to monitor (when strategy is 'list')
+  namespaces: []
+  # Annotation key to check for on namespaces (when strategy is 'annotation')
+  annotationKey: "lunalytics.io/enabled"
+  annotationValue: "true"
+
+# Kubernetes API configuration
+kubernetes:
+  # Run in cluster mode (auto-detected in pods)
+  inCluster: true
+  # kubeconfig file path (for testing only)
+  configFile: ""
+  # context name
+  context: ""
+
+# CRD management
+crd:
+  # Whether to install the Monitor CRD
+  install: true
+  # Whether to upgrade existing CRDs
+  upgrade: true

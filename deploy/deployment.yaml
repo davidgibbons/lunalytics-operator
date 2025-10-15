@@ -1,0 +1,140 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lunalytics-operator-config
+  namespace: lunalytics-system
+  labels:
+    app.kubernetes.io/name: lunalytics-operator
+    app.kubernetes.io/version: "1.0.0"
+data:
+  defaults.yaml: |
+    # Default monitor configuration
+    monitor_defaults:
+      type: "http"
+      method: "GET"
+      interval: 30
+      retry_interval: 30
+      request_timeout: 30
+      valid_status_codes: ["200-299"]
+
+    # Retry configuration
+    retry:
+      max_attempts: 3  # -1 for infinite retries
+      backoff_factor: 2
+      max_delay: 300  # seconds
+
+    # Duplicate handling: annotation_priority, crd_priority, allow_both
+    duplicate_handling: "annotation_priority"
+
+    # Lunalytics API configuration
+    lunalytics:
+      api_url: "https://lunalytics.xyz"
+      # api_token should be set via environment variable LUNALYTICS_API_TOKEN
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lunalytics-operator-secret
+  namespace: lunalytics-system
+  labels:
+    app.kubernetes.io/name: lunalytics-operator
+    app.kubernetes.io/version: "1.0.0"
+type: Opaque
+stringData:
+  # Replace with your actual Lunalytics API token
+  api-token: "your-lunalytics-api-token-here"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lunalytics-operator
+  namespace: lunalytics-system
+  labels:
+    app.kubernetes.io/name: lunalytics-operator
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lunalytics-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lunalytics-operator
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      serviceAccountName: lunalytics-operator
+      containers:
+        - name: operator
+          image: lunalytics-operator:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # Lunalytics API configuration
+            - name: LUNALYTICS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lunalytics-operator-secret
+                  key: api-token
+            - name: LUNALYTICS_API_URL
+              value: "https://lunalytics.xyz"
+            
+            # Retry configuration
+            - name: MAX_RETRY_ATTEMPTS
+              value: "3"
+            - name: RETRY_BACKOFF_FACTOR
+              value: "2.0"
+            - name: RETRY_MAX_DELAY
+              value: "300"
+            
+            # Duplicate handling
+            - name: DUPLICATE_HANDLING
+              value: "annotation_priority"
+            
+            # Monitor defaults
+            - name: MONITOR_DEFAULT_TYPE
+              value: "http"
+            - name: MONITOR_DEFAULT_METHOD
+              value: "GET"
+            - name: MONITOR_DEFAULT_INTERVAL
+              value: "30"
+            - name: MONITOR_DEFAULT_RETRY_INTERVAL
+              value: "30"
+            - name: MONITOR_DEFAULT_REQUEST_TIMEOUT
+              value: "30"
+            - name: MONITOR_DEFAULT_VALID_STATUS_CODES
+              value: "200-299"
+          
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+          
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      
+      volumes:
+        - name: config
+          configMap:
+            name: lunalytics-operator-config
+      
+      restartPolicy: Always

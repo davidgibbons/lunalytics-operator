@@ -1,0 +1,14 @@
+apiVersion: lunalytics.io/v1alpha1
+kind: Monitor
+metadata:
+  name: example-custom-monitor
+  namespace: lunalytics-system
+spec:
+  name: "Custom API Monitor"
+  url: "https://api.example.com/health"
+  type: "http"
+  method: "GET"
+  interval: 60
+  retryInterval: 30
+  requestTimeout: 15
+  validStatusCodes: ["200-299"]

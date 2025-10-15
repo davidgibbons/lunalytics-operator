@@ -1,0 +1,32 @@
+# Default monitor configuration
+monitor_defaults:
+  type: "http"
+  method: "GET"
+  interval: 30
+  retry_interval: 30
+  request_timeout: 30
+  valid_status_codes: ["200-299"]
+
+# Retry configuration
+retry:
+  max_attempts: 3  # -1 for infinite retries
+  backoff_factor: 2
+  max_delay: 300  # seconds
+
+# Duplicate handling: annotation_priority, crd_priority, allow_both
+duplicate_handling: "annotation_priority"
+
+# Namespace filtering
+namespace_filter:
+  # Strategy: all, list, annotation
+  strategy: "all"
+  # List of namespaces to monitor (when strategy is 'list')
+  namespaces: []
+  # Annotation key to check for on namespaces (when strategy is 'annotation')
+  annotation_key: "lunalytics.io/enabled"
+  annotation_value: "true"
+
+# Lunalytics API configuration
+lunalytics:
+  api_url: "https://lunalytics.xyz"
+  # api_token should be set via environment variable LUNALYTICS_API_TOKEN
