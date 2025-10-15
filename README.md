@@ -32,7 +32,7 @@ A Kubernetes operator built with KOPF that automatically creates, updates, and d
 
 2. **Add the Helm repository** (when published):
    ```bash
-   helm repo add lunalytics-operator https://dgibbons.github.io/lunalytics_operator
+   helm repo add lunalytics-operator https://davidgibbons.github.io/lunalytics_operator
    helm repo update
    ```
 
